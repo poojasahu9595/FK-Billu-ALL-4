@@ -1,0 +1,64 @@
+================================================================
+SHOES / FOOTWEAR  (10 Brands)
+================================================================
+
+Nike
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DNike&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+
+Adidas
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DAdidas&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+
+Puma
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DPuma&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+
+Reebok
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DReebok&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+
+Skechers
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DSkechers&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+
+New Balance
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DNew%20Balance&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+[17-05-2026 15:59] WhiteRose_xD: Under Armour
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DUnder%20Armour&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+
+ASICS
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DASICS&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+
+Clarks
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DClarks&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+
+Woodland
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DWoodland&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+
+
+================================================================
+TELEVISION  (9 Brands)
+================================================================
+
+Samsung
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DSamsung&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+
+LG
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DLG&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+
+Sony
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DSony&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+
+TCL
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DTCL&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+
+Hisense
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DHisense&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+
+Panasonic
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DPanasonic&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+
+OnePlus
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DOnePlus&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+[17-05-2026 15:59] WhiteRose_xD: Mi
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DMi&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+
+Philips
+/all/pr?p%5B%5D=facets.brand%255B%255D%3DPhilips&p%5B%5D=facets.fulfilled_by%255B%255D%3DF-Assured&sid=all&p%5B%5D=facets.availability%255B%255D%3DExclude%2BOut%2Bof%2BStock
+
