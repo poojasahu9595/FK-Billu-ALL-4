@@ -1,74 +1,42 @@
 """
-HIGH-PERFORMANCE Storage Module
-Replaces CSV with async SQLite/DuckDB for 10-100x faster writes and analytics
+Storage Module - FIXED VERSION with Zero-Division Protection
+Handles product archiving with proper error handling
 """
 
-import asyncio
 import sqlite3
 import os
-import time
+import asyncio
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
-from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
-
-# Optional DuckDB for analytics (100x faster than SQLite for queries)
-try:
-    import duckdb
-    HAS_DUCKDB = True
-except:
-    HAS_DUCKDB = False
-
-# Async file operations
-try:
-    import aiofiles
-    HAS_AIOFILES = True
-except:
-    HAS_AIOFILES = False
+import threading
 
 
 class ProductStorage:
-    """
-    High-performance product storage with:
-    - Async SQLite bulk inserts (10x faster than CSV)
-    - Automatic indexing for fast queries
-    - Optional DuckDB analytics engine
-    - CSV export on demand
-    """
+    """Persistent storage for scraped products"""
     
     def __init__(self, db_path: str = "data/products_archive.db", use_duckdb: bool = False):
-        self.db_path = db_path
-        self.use_duckdb = use_duckdb and HAS_DUCKDB
-        
         os.makedirs(os.path.dirname(db_path) if os.path.dirname(db_path) else "data", exist_ok=True)
         
-        # Thread pool for async operations
-        self.executor = ThreadPoolExecutor(max_workers=2)
+        self.db_path = db_path
+        self.use_duckdb = use_duckdb
+        self._lock = threading.Lock()
         
-        # Stats
-        self.stats = {
-            'total_saved': 0,
-            'batches': 0,
-            'last_save_time': 0.0,
-        }
+        # SQLite connection
+        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA synchronous=NORMAL")
+        self.conn.execute("PRAGMA cache_size=-16000")
         
-        # Initialize database
-        self._init_db()
+        self._init_tables()
         
-        engine = "DuckDB" if self.use_duckdb else "SQLite"
-        print(f"💾 Storage Ready ({engine})")
-        print(f"   DB: {db_path}")
-        
-        # Show current count
-        count = self.get_total_count()
-        print(f"   Records: {count:,}")
+        print(f"💾 Storage Ready")
+        print(f"   Database: {db_path}")
+        print(f"   DuckDB: {'Enabled' if use_duckdb else 'Disabled'}")
     
-    def _init_db(self):
-        """Initialize database schema with optimized indexes"""
-        conn = sqlite3.connect(self.db_path)
-        
-        # Main products table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS products_archive (
+    def _init_tables(self):
+        """Initialize database tables"""
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 product_id TEXT NOT NULL,
                 listing_id TEXT,
@@ -79,402 +47,313 @@ class ProductStorage:
                 discount INTEGER,
                 url TEXT,
                 scraped_at TEXT,
-                created_at INTEGER DEFAULT (strftime('%s', 'now'))
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(product_id, current_price, discount)
             )
         """)
-        
-        # Create indexes for common queries
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_product_id 
-            ON products_archive(product_id)
-        """)
-        
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_discount 
-            ON products_archive(discount DESC)
-        """)
-        
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_brand 
-            ON products_archive(brand)
-        """)
-        
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_scraped_at 
-            ON products_archive(scraped_at)
-        """)
-        
-        # Metadata table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS storage_metadata (
-                key TEXT PRIMARY KEY,
-                value TEXT,
-                updated_at INTEGER DEFAULT (strftime('%s', 'now'))
-            )
-        """)
-        
-        conn.commit()
-        conn.close()
-        
-        # Initialize DuckDB if enabled
-        if self.use_duckdb:
-            self._init_duckdb()
-    
-    def _init_duckdb(self):
-        """Initialize DuckDB for fast analytics"""
+        # FIX 4: Safe migration — add unique index if upgrading old DB
         try:
-            duck_path = self.db_path.replace('.db', '_analytics.duckdb')
-            conn = duckdb.connect(duck_path)
-            
-            # Create view of SQLite data
-            conn.execute(f"""
-                CREATE OR REPLACE VIEW products AS 
-                SELECT * FROM sqlite_scan('{self.db_path}', 'products_archive')
+            self.conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_product_price_discount
+                ON products(product_id, current_price, discount)
             """)
-            
-            conn.close()
-            print(f"   Analytics: {duck_path}")
-        except Exception as e:
-            print(f"   ⚠️ DuckDB init failed: {e}")
-            self.use_duckdb = False
+        except:
+            pass
+        
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_product_id ON products(product_id)
+        """)
+        
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_discount ON products(discount)
+        """)
+        
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_scraped_at ON products(scraped_at)
+        """)
+        
+        self.conn.commit()
     
-    async def save_products(self, products: List[Dict]) -> bool:
-        """
-        Async bulk insert - 10x faster than CSV
-        Non-blocking operation
-        """
+    async def save_products(self, products: List[Dict]):
+        """Save products to database (async wrapper)"""
         if not products:
-            return True
+            return
         
-        # Run in thread pool to avoid blocking event loop
-        loop = asyncio.get_event_loop()
-        success = await loop.run_in_executor(
-            self.executor,
-            self._save_products_sync,
-            products
-        )
-        
-        return success
-    
-    def _save_products_sync(self, products: List[Dict]) -> bool:
-        """Synchronous bulk insert with transaction"""
         try:
-            start = time.time()
-            
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            # Prepare data for bulk insert
-            rows = []
-            for p in products:
-                rows.append((
-                    p.get('product_id', ''),
-                    p.get('listing_id', ''),
-                    p.get('brand', ''),
-                    p.get('title', '')[:500],  # Limit title length
-                    p.get('current_price', ''),
-                    p.get('original_price', ''),
-                    int(p.get('discount', 0)),
-                    p.get('url', ''),
-                    p.get('scraped_at', datetime.now().isoformat()),
-                ))
-            
-            # Bulk insert with transaction (MUCH faster)
-            cursor.executemany("""
-                INSERT INTO products_archive 
-                (product_id, listing_id, brand, title, current_price, original_price, discount, url, scraped_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, rows)
-            
-            conn.commit()
-            conn.close()
-            
-            elapsed = time.time() - start
-            
-            self.stats['total_saved'] += len(products)
-            self.stats['batches'] += 1
-            self.stats['last_save_time'] = elapsed
-            
-            print(f"💾 Saved {len(products)} products to DB in {elapsed:.2f}s ({len(products)/elapsed:.0f}/s)")
-            
-            return True
-            
+            with self._lock:
+                now = datetime.now().isoformat()
+                
+                data = []
+                for p in products:
+                    data.append((
+                        p.get('product_id', ''),
+                        p.get('listing_id', ''),
+                        p.get('brand', ''),
+                        p.get('title', '')[:500],
+                        p.get('current_price', '0'),
+                        p.get('original_price', '0'),
+                        int(p.get('discount', 0)),
+                        p.get('url', '')[:1000],
+                        p.get('scraped_at', now)
+                    ))
+                
+                # FIX 4: INSERT OR IGNORE — same product+price+discount combo skip
+                self.conn.executemany(
+                    "INSERT OR IGNORE INTO products (product_id, listing_id, brand, title, current_price, original_price, discount, url, scraped_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    data
+                )
+                self.conn.commit()
+        
         except Exception as e:
             print(f"⚠️ Storage error: {e}")
-            return False
-    
-    def get_total_count(self) -> int:
-        """Get total number of archived products"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM products_archive")
-            count = cursor.fetchone()[0]
-            conn.close()
-            return count
-        except:
-            return 0
     
     def get_stats(self) -> Dict:
-        """Get storage statistics"""
+        """Get database statistics - FIXED with zero-division protection"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+            cur = self.conn.cursor()
             
-            # Total products
-            cursor.execute("SELECT COUNT(*) FROM products_archive")
-            total = cursor.fetchone()[0]
+            # Total records
+            cur.execute("SELECT COUNT(*) FROM products")
+            total = cur.fetchone()[0]
             
             # Unique products
-            cursor.execute("SELECT COUNT(DISTINCT product_id) FROM products_archive")
-            unique = cursor.fetchone()[0]
+            cur.execute("SELECT COUNT(DISTINCT product_id) FROM products")
+            unique = cur.fetchone()[0]
             
             # Hot deals (70%+)
-            cursor.execute("SELECT COUNT(*) FROM products_archive WHERE discount >= 70")
-            hot = cursor.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM products WHERE discount >= 70")
+            hot_deals = cur.fetchone()[0]
             
-            # Top brands
-            cursor.execute("""
+            # Average discount - FIXED
+            cur.execute("SELECT AVG(discount) FROM products WHERE discount > 0")
+            avg_result = cur.fetchone()[0]
+            avg_discount = float(avg_result) if avg_result else 0.0
+            
+            # Top brands - FIXED with LIMIT to prevent errors
+            cur.execute("""
                 SELECT brand, COUNT(*) as cnt 
-                FROM products_archive 
+                FROM products 
                 WHERE brand != '' 
                 GROUP BY brand 
                 ORDER BY cnt DESC 
-                LIMIT 5
+                LIMIT 10
             """)
-            top_brands = cursor.fetchall()
-            
-            conn.close()
+            top_brands = cur.fetchall()
             
             return {
                 'total': total,
                 'unique': unique,
-                'hot_deals': hot,
-                'top_brands': top_brands,
-                'saved': self.stats['total_saved'],
-                'batches': self.stats['batches'],
+                'hot_deals': hot_deals,
+                'avg_discount': avg_discount,
+                'top_brands': top_brands
             }
-        except:
-            return {}
+        
+        except Exception as e:
+            print(f"⚠️ Stats error: {e}")
+            return {
+                'total': 0,
+                'unique': 0,
+                'hot_deals': 0,
+                'avg_discount': 0.0,
+                'top_brands': []
+            }
     
     async def export_to_csv(self, output_file: str, limit: Optional[int] = None) -> bool:
-        """Export data to CSV on demand"""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            self.executor,
-            self._export_to_csv_sync,
-            output_file,
-            limit
-        )
-    
-    def _export_to_csv_sync(self, output_file: str, limit: Optional[int] = None) -> bool:
-        """Synchronous CSV export"""
+        """Export database to CSV"""
         try:
             import csv
             
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+            query = "SELECT product_id, listing_id, brand, title, current_price, original_price, discount, url, scraped_at FROM products ORDER BY scraped_at DESC"
             
-            query = "SELECT product_id, listing_id, brand, title, current_price, original_price, discount, url, scraped_at FROM products_archive"
             if limit:
                 query += f" LIMIT {limit}"
             
-            cursor.execute(query)
+            cur = self.conn.cursor()
+            cur.execute(query)
+            rows = cur.fetchall()
+            
+            if not rows:
+                return False
             
             with open(output_file, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(['product_id', 'listing_id', 'brand', 'title', 'current_price', 'original_price', 'discount', 'url', 'scraped_at'])
-                writer.writerows(cursor.fetchall())
+                writer.writerows(rows)
             
-            conn.close()
-            
-            print(f"📊 Exported to {output_file}")
             return True
-            
+        
         except Exception as e:
-            print(f"⚠️ CSV export error: {e}")
+            print(f"⚠️ Export error: {e}")
             return False
     
-    def query_hot_deals(self, min_discount: int = 70, limit: int = 100) -> List[Dict]:
-        """Query hot deals (useful for reports)"""
+    def query_hot_deals(self, min_discount: int = 70, limit: int = 20) -> List[Dict]:
+        """Query hot deals"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                SELECT product_id, brand, title, current_price, discount, url, scraped_at
-                FROM products_archive
+            cur = self.conn.cursor()
+            cur.execute("""
+                SELECT product_id, brand, title, current_price, original_price, discount, url
+                FROM products
                 WHERE discount >= ?
                 ORDER BY discount DESC, scraped_at DESC
                 LIMIT ?
             """, (min_discount, limit))
             
-            results = [dict(row) for row in cursor.fetchall()]
-            conn.close()
+            rows = cur.fetchall()
             
-            return results
-        except:
+            return [
+                {
+                    'product_id': r[0],
+                    'brand': r[1],
+                    'title': r[2],
+                    'current_price': r[3],
+                    'original_price': r[4],
+                    'discount': r[5],
+                    'url': r[6]
+                }
+                for r in rows
+            ]
+        
+        except Exception as e:
+            print(f"⚠️ Query error: {e}")
             return []
     
-    def query_by_brand(self, brand: str, limit: int = 100) -> List[Dict]:
+    def query_by_brand(self, brand: str, limit: int = 20) -> List[Dict]:
         """Query products by brand"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                SELECT product_id, brand, title, current_price, discount, url, scraped_at
-                FROM products_archive
+            cur = self.conn.cursor()
+            cur.execute("""
+                SELECT product_id, brand, title, current_price, original_price, discount, url
+                FROM products
                 WHERE brand LIKE ?
                 ORDER BY discount DESC, scraped_at DESC
                 LIMIT ?
             """, (f"%{brand}%", limit))
             
-            results = [dict(row) for row in cursor.fetchall()]
-            conn.close()
+            rows = cur.fetchall()
             
-            return results
-        except:
+            return [
+                {
+                    'product_id': r[0],
+                    'brand': r[1],
+                    'title': r[2],
+                    'current_price': r[3],
+                    'original_price': r[4],
+                    'discount': r[5],
+                    'url': r[6]
+                }
+                for r in rows
+            ]
+        
+        except Exception as e:
+            print(f"⚠️ Query error: {e}")
             return []
     
     def cleanup_old_records(self, days: int = 30) -> int:
-        """Remove records older than N days (optional maintenance)"""
+        """Delete records older than specified days"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+            cutoff = (datetime.now() - timedelta(days=days)).isoformat()
             
-            cursor.execute("""
-                DELETE FROM products_archive 
-                WHERE created_at < strftime('%s', 'now', '-{} days')
-            """.format(days))
-            
-            deleted = cursor.rowcount
-            conn.commit()
-            conn.close()
-            
-            print(f"🧹 Cleaned {deleted} old records")
-            return deleted
-        except:
+            with self._lock:
+                cur = self.conn.cursor()
+                cur.execute("DELETE FROM products WHERE scraped_at < ?", (cutoff,))
+                deleted = cur.rowcount
+                self.conn.commit()
+                
+                # Vacuum to reclaim space
+                self.conn.execute("VACUUM")
+                
+                return deleted
+        
+        except Exception as e:
+            print(f"⚠️ Cleanup error: {e}")
             return 0
     
     def close(self):
-        """Cleanup resources"""
-        self.executor.shutdown(wait=True)
+        """Close database connection"""
+        try:
+            self.conn.close()
+        except:
+            pass
 
 
 class AnalyticsEngine:
-    """
-    Optional analytics engine using DuckDB
-    100x faster than SQLite for complex queries
-    """
+    """Advanced analytics using DuckDB (optional)"""
     
-    def __init__(self, sqlite_db: str = "data/products_archive.db"):
-        if not HAS_DUCKDB:
-            raise ImportError("Install DuckDB: pip install duckdb")
-        
-        self.sqlite_db = sqlite_db
-        self.duck_db = sqlite_db.replace('.db', '_analytics.duckdb')
-        
-        print(f"📊 Analytics Engine Ready")
-        print(f"   DuckDB: {self.duck_db}")
-    
-    def get_top_deals_by_brand(self, min_discount: int = 50) -> List[Dict]:
-        """Get top deals grouped by brand"""
+    def __init__(self, db_path: str):
         try:
-            conn = duckdb.connect(self.duck_db)
+            import duckdb
+            self.duck = duckdb.connect(':memory:')
             
-            results = conn.execute(f"""
+            # Load SQLite data into DuckDB
+            self.duck.execute(f"INSTALL sqlite; LOAD sqlite;")
+            self.duck.execute(f"ATTACH '{db_path}' AS sqlite_db (TYPE sqlite);")
+            
+            print("📊 Analytics Engine Ready (DuckDB)")
+        
+        except ImportError:
+            print("⚠️ DuckDB not installed - analytics disabled")
+            self.duck = None
+    
+    def get_top_deals_by_brand(self, min_discount: int = 50, limit: int = 20) -> List[Dict]:
+        """Get top brands by deal count and avg discount"""
+        if not self.duck:
+            return []
+        
+        try:
+            result = self.duck.execute(f"""
                 SELECT 
                     brand,
                     COUNT(*) as deal_count,
-                    AVG(discount) as avg_discount,
+                    ROUND(AVG(discount), 1) as avg_discount,
                     MAX(discount) as max_discount
-                FROM sqlite_scan('{self.sqlite_db}', 'products_archive')
-                WHERE discount >= {min_discount} AND brand != ''
+                FROM sqlite_db.products
+                WHERE discount >= {min_discount}
+                AND brand != ''
                 GROUP BY brand
-                ORDER BY deal_count DESC, avg_discount DESC
-                LIMIT 20
+                ORDER BY deal_count DESC
+                LIMIT {limit}
             """).fetchall()
-            
-            conn.close()
             
             return [
                 {
                     'brand': r[0],
                     'deal_count': r[1],
-                    'avg_discount': round(r[2], 1),
+                    'avg_discount': r[2],
                     'max_discount': r[3]
                 }
-                for r in results
+                for r in result
             ]
+        
         except Exception as e:
             print(f"⚠️ Analytics error: {e}")
             return []
     
     def get_price_trends(self, product_id: str) -> List[Dict]:
         """Get price history for a product"""
+        if not self.duck:
+            return []
+        
         try:
-            conn = duckdb.connect(self.duck_db)
-            
-            results = conn.execute(f"""
+            result = self.duck.execute(f"""
                 SELECT 
                     scraped_at,
                     current_price,
                     discount
-                FROM sqlite_scan('{self.sqlite_db}', 'products_archive')
+                FROM sqlite_db.products
                 WHERE product_id = '{product_id}'
                 ORDER BY scraped_at DESC
                 LIMIT 100
             """).fetchall()
             
-            conn.close()
-            
             return [
                 {
-                    'date': r[0],
+                    'timestamp': r[0],
                     'price': r[1],
                     'discount': r[2]
                 }
-                for r in results
+                for r in result
             ]
+        
         except Exception as e:
-            print(f"⚠️ Analytics error: {e}")
+            print(f"⚠️ Trend analysis error: {e}")
             return []
-    
-    def generate_daily_report(self) -> Dict:
-        """Generate daily summary report"""
-        try:
-            conn = duckdb.connect(self.duck_db)
-            
-            # Today's stats
-            results = conn.execute(f"""
-                SELECT 
-                    COUNT(*) as total_products,
-                    COUNT(DISTINCT product_id) as unique_products,
-                    AVG(discount) as avg_discount,
-                    COUNT(CASE WHEN discount >= 70 THEN 1 END) as hot_deals
-                FROM sqlite_scan('{self.sqlite_db}', 'products_archive')
-                WHERE DATE(scraped_at) = CURRENT_DATE
-            """).fetchone()
-            
-            conn.close()
-            
-            return {
-                'total_products': results[0],
-                'unique_products': results[1],
-                'avg_discount': round(results[2], 1) if results[2] else 0,
-                'hot_deals': results[3],
-            }
-        except Exception as e:
-            print(f"⚠️ Analytics error: {e}")
-            return {}
-
-
-# Export convenience function
-async def quick_save(products: List[Dict], db_path: str = "data/products_archive.db"):
-    """Quick save function for easy migration"""
-    storage = ProductStorage(db_path)
-    await storage.save_products(products)
-    return storage.get_stats()
