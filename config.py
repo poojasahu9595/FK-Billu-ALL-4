@@ -35,7 +35,7 @@ TELEGRAM_CONFIG = {
         "70plus": "-1003724024226",
         "90plus": "-1003780860886",
     },
-    "chat_id": "-1003895320194",
+    "chat_id": "-1003794266110",
 }
 
 CHANNEL_RULES = {
@@ -73,11 +73,11 @@ SPEED_PRESETS = {
     },
     "fast": {
         "num_sessions":          15,
-        "max_concurrent_pages":  80,
-        "parallel_batch_size":   60,   # up to 60 URLs at once
-        "max_pages_per_url":     60,
-        "telegram_workers":      25,
-        "loop_delay":            20,
+        "max_concurrent_pages":  120,
+        "parallel_batch_size":   139,   # up to 60 URLs at once
+        "max_pages_per_url":     8,
+        "telegram_workers":      30,
+        "loop_delay":            3,
     },
     "aggressive": {
         "num_sessions":          15,

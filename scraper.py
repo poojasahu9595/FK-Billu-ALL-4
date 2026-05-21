@@ -554,8 +554,16 @@ class WorkerPoolScraper:
             self._scrape_one(url, url_sem, i + 1, len(urls))
             for i, url in enumerate(urls)
         ]
+        
+        results = []
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Faster completion handling
+        for coro in asyncio.as_completed(tasks):
+            try:
+                r = await coro
+                results.append(r)
+            except Exception:
+                pass
 
         all_products: List[Dict] = []
         seen: set = set()
